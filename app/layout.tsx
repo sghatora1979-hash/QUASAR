@@ -3,7 +3,7 @@ import './globals.css';
 import { SiteHeader } from '@/components/Header';
 import { SiteFooter } from '@/components/Footer';
 import { ThemeProvider } from '@/components/ThemeProvider';
-import { MatrixBg } from '@/components/MatrixBg';
+import { CoinRain } from '@/components/CoinRain';
 
 export const metadata: Metadata = {
   title: 'Quasar — Demo Crypto Exchange',
@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-void text-slate-200 antialiased min-h-screen flex flex-col">
         <ThemeProvider>
-          <MatrixBg />
+          <CoinRain />
           <div className="relative z-10 flex flex-col min-h-screen">
             <SiteHeader />
             <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">{children}</main>

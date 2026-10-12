@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { startOtp, verifyOtp, loginUser, userExists } from '@/lib/auth';
+import { startOtp, verifyOtp, loginUser, userExists, registerUser } from '@/lib/auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,6 +12,19 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const [demoCode, setDemoCode] = useState('');
   const [error, setError] = useState('');
+
+  function demoLogin() {
+    setError('');
+    const email = 'demo@quasar.app';
+    if (!userExists(email)) {
+      registerUser({
+        name: 'Demo Trader', email, phone: '+10000000000',
+        idType: 'Demo', idNumber: 'DEMO-001', createdAt: Date.now(),
+      });
+    }
+    if (!loginUser(email)) return setError('Demo login failed. Try again.');
+    router.push('/trade/BTCUSD');
+  }
 
   function sendCode() {
     setError('');
@@ -44,6 +57,10 @@ export default function LoginPage() {
           <button onClick={sendCode}
             className="w-full bg-violet-600 text-white font-bold rounded-xl py-3 hover:bg-violet-700">
             Send OTP
+          </button>
+          <button onClick={demoLogin}
+            className="w-full bg-amber-500 text-white font-bold rounded-xl py-3 hover:bg-amber-600">
+            🚀 1-Click Demo Login
           </button>
           <p className="text-sm text-center text-gray-500">
             New here? <Link href="/register" className="text-violet-600 font-bold">Create account</Link>
