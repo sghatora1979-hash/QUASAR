@@ -83,14 +83,21 @@ export default function OrdersPage() {
                     <td className="px-4 py-3 text-right">
                       <span
                         className={cn(
-                          'text-[11px] font-semibold rounded-md px-2 py-1',
-                          o.status === 'liquidated'
+                          'text-[11px] font-semibold rounded-md px-2 py-1 capitalize',
+                          o.status === 'liquidated' || o.status === 'stopped'
                             ? 'text-red-200 bg-red-500/15 border border-red-500/40'
-                            : 'text-slate-400 bg-panel2 border border-edge'
+                            : o.status === 'take-profit'
+                              ? 'text-up bg-up/15 border border-up/40'
+                              : 'text-slate-400 bg-panel2 border border-edge'
                         )}
                       >
-                        {o.status}
+                        {o.status === 'take-profit' ? 'take-profit ✓' : o.status}
                       </span>
+                      {o.orderType && o.orderType !== 'delivery' && (
+                        <span className="ml-1.5 text-[10px] font-bold uppercase text-accent bg-accent/10 border border-accent/30 rounded px-1.5 py-0.5">
+                          {o.orderType}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

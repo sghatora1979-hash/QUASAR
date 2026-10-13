@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { Search, RefreshCw, TriangleAlert, ChevronLeft, ChevronRight, Globe2, Bitcoin, CandlestickChart } from 'lucide-react';
 import { PAIRS } from '@/lib/pairs';
 import { FOREX_PAIRS, forexPrices } from '@/lib/forex';
-import { STOCKS, REGION_LABELS, fmtStockPrice, fmtVol, type StockRegion } from '@/lib/stocks';
+import { STOCKS, fmtStockPrice, fmtVol, type StockRegion } from '@/lib/stocks';
+import { CountrySelector } from '@/components/CountrySelector';
 import { fmtUSD } from '@/lib/quasar';
 import { Sparkline } from '@/components/Sparkline';
 import { TVTickerTape, TVCryptoHeatmap } from '@/components/TVWidgets';
@@ -58,6 +59,12 @@ export default function MarketsPage() {
   const [region, setRegion] = useState<RegionFilter>('all');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
+
+  const regionCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of stockRows) m[r.region] = (m[r.region] ?? 0) + 1;
+    return m;
+  }, [stockRows]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -191,7 +198,11 @@ export default function MarketsPage() {
           r.exchange.toLowerCase().includes(needle)
       );
     }
-    if (!needle) return rows;
+    if (!needle) {
+      // Pin the native QSR demo pair at the very top of the crypto list.
+      const qsr = rows.find((r) => r.symbol === 'QSR');
+      return qsr ? [qsr, ...rows.filter((r) => r.symbol !== 'QSR')] : rows;
+    }
     return rows.filter(
       (r) => r.symbol.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)
     );
@@ -266,24 +277,13 @@ export default function MarketsPage() {
         ))}
       </div>
 
-      {/* Region filter for stocks */}
+      {/* Country selector for stocks — region-grouped with live market hours */}
       {tab === 'stocks' && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {(['all', 'india', 'usa', 'europe'] as const).map((rg) => (
-            <button
-              key={rg}
-              onClick={() => setRegion(rg)}
-              className={cn(
-                'px-4 py-1.5 rounded-full text-xs font-bold border transition',
-                region === rg
-                  ? 'bg-accent2/20 border-accent2/60 text-accent2'
-                  : 'bg-panel border-edge text-slate-400 hover:text-white'
-              )}
-            >
-              {rg === 'all' ? `All (${stockRows.length})` : `${REGION_LABELS[rg]} (${stockRows.filter((r) => r.region === rg).length})`}
-            </button>
-          ))}
-        </div>
+        <CountrySelector
+          selected={region}
+          onSelect={(code) => { setRegion(code as RegionFilter); setPage(1); }}
+          counts={regionCounts}
+        />
       )}
 
       {tab === 'forex' && fxNote && (
@@ -351,15 +351,33 @@ export default function MarketsPage() {
                       <td className="px-4 py-3 text-slate-500 tabular-nums">{(safePage - 1) * PER_PAGE + i + 1}</td>
                       <td className="px-4 py-3">
                         <Link href={`/trade/${r.symbol}USD`} className="flex items-center gap-2.5 group">
-                          <span className="w-8 h-8 rounded-full bg-gradient-to-br from-accent/40 to-accent2 border border-edge flex items-center justify-center text-[10px] font-black text-white">
-                            {r.symbol.slice(0, 3)}
-                          </span>
+                          {r.symbol === 'QSR' ? (
+                            <img
+                              src="/quasar-coin-logo.png"
+                              alt="QSR coin logo"
+                              className="w-8 h-8 rounded-full border border-accent/50 object-cover"
+                            />
+                          ) : (
+                            <span className="w-8 h-8 rounded-full bg-gradient-to-br from-accent/40 to-accent2 border border-edge flex items-center justify-center text-[10px] font-black text-white">
+                              {r.symbol.slice(0, 3)}
+                            </span>
+                          )}
                           <span>
-                            <span className="block font-bold text-white group-hover:text-accent2 transition">
+                            <span className="flex items-center gap-1.5 font-bold text-white group-hover:text-accent2 transition">
                               {r.symbol}
                               <span className="text-slate-500 font-medium">/USD</span>
+                              {r.symbol === 'QSR' && (
+                                <span className="text-[9px] font-black uppercase tracking-wider text-amber-200 bg-amber-400/15 border border-amber-300/40 rounded-md px-1.5 py-0.5">
+                                  Native
+                                </span>
+                              )}
                             </span>
-                            <span className="block text-[11px] text-slate-500">{r.name}</span>
+                            <span className="block text-[11px] text-slate-500">
+                              {r.name}
+                              {r.symbol === 'QSR' && (
+                                <span className="text-amber-300/70"> · simulated demo price</span>
+                              )}
+                            </span>
                           </span>
                         </Link>
                       </td>

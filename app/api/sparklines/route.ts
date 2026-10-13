@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { PAIRS } from '@/lib/pairs';
+import { PAIRS, qsrSimSpark } from '@/lib/pairs';
 import { krakenGet, resultKey } from '../_lib';
 
 type OhlcRow = [number, string, string, string, string, string, string, number];
@@ -47,10 +47,14 @@ export async function GET() {
   cursor = (cursor + WINDOW) % PAIRS.length;
 
   for (const p of window) {
+    if (p.native) continue; // native demo pairs never hit Kraken
     const data = await fetchOne(p.symbol, p.kraken);
     if (data) cache[p.symbol] = { data, at: now };
     await sleep(350);
   }
+
+  // QSR: synthetic demo sparkline (labeled simulated in the UI).
+  cache['QSR'] = { data: qsrSimSpark(now), at: now };
 
   const out: Record<string, number[]> = {};
   for (const [k, v] of Object.entries(cache)) out[k] = v.data;

@@ -1,14 +1,18 @@
-// GET /api/stocks — daily stock closes via Yahoo Finance chart API (free, no key).
-// Covers India (NSE .NS), USA, Europe (Xetra/Euronext/LSE/SIX/Copenhagen).
-// Also returns priceUSD (converted via Frankfurter ECB rates) so the paper
-// engine can keep USD-consistent accounting. Cached 15 min server-side.
-// Honest label: daily closes — indicative, not live ticks.
+// GET /api/stocks — daily stock closes via Yahoo Finance (free, no key).
+// Query params:
+//   ?symbols=RELIANCE,TCS   → quotes for these display symbols only
+//   ?region=in_nse           → quotes for one region
+//   ?regions=in_nse,us,uk    → quotes for several regions
+//   (no params)              → featured set (keeps homepage fast)
+// Per-symbol server cache (5 min). Symbols with no data are skipped — never faked.
+// All prices are DEMO/indicative (daily closes), not live ticks.
 
-import { STOCKS } from '@/lib/stocks';
+import { STOCKS, stockBySymbol, stocksByRegion, type Stock } from '@/lib/stocks';
+import { fetchYahooQuote, fxPerUsd } from '@/lib/yahoo';
 
 export const dynamic = 'force-dynamic';
 
-type StockQuote = {
+export type StockQuote = {
   symbol: string;
   name: string;
   region: string;
@@ -20,117 +24,42 @@ type StockQuote = {
   volume: number;
 };
 
-type Cache = { t: number; payload: unknown };
-let cache: Cache | null = null;
-const TTL = 900_000;
+type CacheEntry = { t: number; q: StockQuote | null };
+const cache = new Map<string, CacheEntry>();
+const TTL = 300_000;
 
-const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) QuasarDemo/1.0' };
+const FEATURED = [
+  // homepage default — keeps first paint fast
+  ...['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'TATAPOWER', 'ETERNAL', 'HAL'],
+  ...['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'JPM', 'LLY'],
+  ...['RY', 'TD', 'SHOP', 'ENB'],
+  ...['SHEL', 'AZN', 'HSBA'],
+  ...['D05', 'U11', 'O39'],
+  ...['7203', '9984', '8031'],
+  ...['0700', '0388'],
+  ...['SAP', 'MC', 'ASML'],
+];
 
-async function fetchQuote(yahoo: string): Promise<{
-  price: number;
-  changePct: number | null;
-  volume: number;
-} | null> {
-  try {
-    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yahoo}?interval=1d&range=5d`, {
-      headers: UA,
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
-    const meta = j?.chart?.result?.[0]?.meta;
-    const price = meta?.regularMarketPrice;
-    if (!(price > 0)) return null;
-    let changePct: number | null =
-      typeof meta?.regularMarketChangePercent === 'number' ? meta.regularMarketChangePercent : null;
-    if (changePct === null) {
-      const prev = meta?.chartPreviousClose ?? meta?.previousClose;
-      if (prev > 0) changePct = ((price - prev) / prev) * 100;
-    }
-    let volume = 0;
-    try {
-      const vols: (number | null)[] = j.chart.result[0].indicators.quote[0].volume ?? [];
-      for (let i = vols.length - 1; i >= 0; i--) {
-        if (vols[i] && vols[i]! > 0) {
-          volume = vols[i]!;
-          break;
-        }
-      }
-    } catch {
-      /* volume optional */
-    }
-    return { price, changePct, volume };
-  } catch {
+async function quoteFor(s: Stock): Promise<StockQuote | null> {
+  const hit = cache.get(s.yahoo);
+  if (hit && Date.now() - hit.t < TTL) return hit.q;
+  const q = await fetchYahooQuote(s.yahoo);
+  if (!q) {
+    cache.set(s.yahoo, { t: Date.now(), q: null });
     return null;
   }
-}
-
-async function usdRates(): Promise<Record<string, number>> {
-  try {
-    const r = await fetch('https://api.frankfurter.dev/v1/latest?base=USD', { headers: UA });
-    if (!r.ok) return {};
-    const j = await r.json();
-    return (j?.rates ?? {}) as Record<string, number>;
-  } catch {
-    return {};
+  let priceUSD = q.price;
+  if (s.currency !== 'USD') {
+    const fx = s.currency === 'GBp' ? await fxPerUsd('GBP') : await fxPerUsd(s.currency);
+    if (s.currency === 'GBp') {
+      priceUSD = fx > 0 ? q.price / 100 / fx : 0;
+    } else {
+      priceUSD = fx > 0 ? q.price / fx : 0;
+    }
   }
-}
-
-// Fallback FX via Yahoo for currencies Frankfurter lacks (e.g. RUB —
-// ECB suspended the rouble reference rate). Returns units of `cur` per 1 USD.
-async function yahooFxPerUsd(cur: string): Promise<number> {
-  try {
-    // e.g. RUBUSD=X = USD per 1 RUB → invert to get RUB per USD
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${cur}USD=X?interval=1d&range=5d`,
-      { headers: UA }
-    );
-    if (!r.ok) return 0;
-    const j = await r.json();
-    const px = j?.chart?.result?.[0]?.meta?.regularMarketPrice;
-    return px > 0 ? 1 / px : 0;
-  } catch {
-    return 0;
-  }
-}
-
-export async function GET() {
-  if (cache && Date.now() - cache.t < TTL) {
-    return Response.json({ ok: true, cached: true, ...(cache.payload as object) });
-  }
-  try {
-    const [rates] = await Promise.all([usdRates()]);
-    // Pre-fetch Yahoo FX for any currency missing from Frankfurter (RUB).
-    const missing = Array.from(new Set(STOCKS.map((s) => s.currency))).filter(
-      (c) => c !== 'USD' && c !== 'GBp' && !(rates[c] > 0)
-    );
-    const fallback: Record<string, number> = {};
-    await Promise.all(
-      missing.map(async (c) => {
-        fallback[c] = await yahooFxPerUsd(c);
-      })
-    );
-    const quotes: StockQuote[] = [];
-
-    // Chunked concurrency to stay polite to Yahoo's unofficial API.
-    const CHUNK = 10;
-    for (let i = 0; i < STOCKS.length; i += CHUNK) {
-      const batch = STOCKS.slice(i, i + CHUNK);
-      const results = await Promise.all(batch.map((s) => fetchQuote(s.yahoo)));
-      batch.forEach((s, k) => {
-        const q = results[k];
-        if (!q) return; // skip silently — never fake data
-        let priceUSD = q.price;
-        if (s.currency !== 'USD') {
-          const fxRaw = s.currency === 'GBp' ? rates['GBP'] : rates[s.currency];
-          const fx = fxRaw > 0 ? fxRaw : fallback[s.currency] || 0;
-          if (s.currency === 'GBp') {
-            priceUSD = fx > 0 ? q.price / 100 / fx : 0;
-          } else {
-            priceUSD = fx > 0 ? q.price / fx : 0;
-          }
-        }
-        if (!(priceUSD > 0)) return;
-        quotes.push({
+  const out: StockQuote | null =
+    priceUSD > 0
+      ? {
           symbol: s.symbol,
           name: s.name,
           region: s.region,
@@ -140,22 +69,41 @@ export async function GET() {
           priceUSD,
           changePct: q.changePct,
           volume: q.volume,
-        });
-      });
+        }
+      : null;
+  cache.set(s.yahoo, { t: Date.now(), q: out });
+  return out;
+}
+
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const symbolsParam = url.searchParams.get('symbols');
+    const regionParam = url.searchParams.get('region');
+    const regionsParam = url.searchParams.get('regions');
+
+    let list: Stock[];
+    if (symbolsParam) {
+      const wanted = symbolsParam.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+      list = wanted.map((w) => stockBySymbol(w)).filter((s): s is Stock => !!s);
+    } else if (regionParam) {
+      list = stocksByRegion(regionParam as Stock['region']);
+    } else if (regionsParam) {
+      const regs = regionsParam.split(',').map((x) => x.trim()).filter(Boolean);
+      list = regs.flatMap((r) => stocksByRegion(r as Stock['region']));
+    } else {
+      list = FEATURED.map((w) => stockBySymbol(w)).filter((s): s is Stock => !!s);
     }
 
-    if (!quotes.length) {
-      return Response.json({ ok: false, error: 'Stock data unavailable' }, { status: 502 });
+    const quotes: StockQuote[] = [];
+    const CHUNK = 12;
+    for (let i = 0; i < list.length; i += CHUNK) {
+      const batch = list.slice(i, i + CHUNK);
+      const results = await Promise.all(batch.map(quoteFor));
+      for (const qq of results) if (qq) quotes.push(qq);
     }
-    const payload = {
-      quotes,
-      count: quotes.length,
-      total: STOCKS.length,
-      note: 'Daily closes (Yahoo Finance) — indicative, not live ticks. Demo trading only.',
-    };
-    cache = { t: Date.now(), payload };
-    return Response.json({ ok: true, ...payload });
+    return Response.json({ ok: true, quotes, count: quotes.length, total: list.length });
   } catch {
-    return Response.json({ ok: false, error: 'Stock data unavailable' }, { status: 502 });
+    return Response.json({ ok: false, error: 'Stock data unavailable (demo).' }, { status: 500 });
   }
 }

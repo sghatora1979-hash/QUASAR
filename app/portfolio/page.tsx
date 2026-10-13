@@ -9,8 +9,11 @@ import {
   topUpState,
   closePosition,
   checkLiquidations,
+  checkStops,
+  settleOptions,
   portfolioValue,
   recordSnapshot,
+  feesPaid,
   fmtUSD,
   fmtQty,
   START_CASH,
@@ -76,17 +79,20 @@ export default function PortfolioPage() {
         }
         if (!alive) return;
         setPrices(map);
-        // Auto-liquidate positions touched at their liquidation price.
+        // Auto-liquidate / stop-out positions and settle expired options.
         setState((prev) => {
-          if (!prev.positions.length) return prev;
+          if (!prev.positions.length && !(prev.options ?? []).length) return prev;
           const s: PaperState = {
             ...prev,
             positions: prev.positions.map((p) => ({ ...p })),
+            options: (prev.options ?? []).map((o) => ({ ...o })),
             orders: [...prev.orders],
             snapshots: [...prev.snapshots],
           };
           const { liquidated } = checkLiquidations(s, map);
-          return liquidated.length ? { ...s } : prev;
+          const { closed } = checkStops(s, map);
+          const { settled } = settleOptions(s, map);
+          return liquidated.length || closed.length || settled.length ? { ...s } : prev;
         });
         setError('');
       } catch {
@@ -122,6 +128,7 @@ export default function PortfolioPage() {
   };
 
   const doTopUp = () => {
+    if (!window.confirm('Refill demo cash to $100,000? (Only tops up if below $100,000. Holdings and history are untouched.)')) return;
     setState((prev) => {
       const s: PaperState = { ...prev, positions: [...prev.positions], orders: [...prev.orders], snapshots: [...prev.snapshots], holdings: { ...prev.holdings } };
       return { ...topUpState(s) };
@@ -139,7 +146,7 @@ export default function PortfolioPage() {
   };
 
   const up = pv.totalPnl >= 0;
-  const needsTopUp = state.cash < START_CASH;
+  const fees = feesPaid(state);
 
   return (
     <div>
@@ -152,15 +159,14 @@ export default function PortfolioPage() {
           Demo funds
         </span>
         <div className="ml-auto flex items-center gap-2">
-          {needsTopUp && (
-            <button
-              onClick={doTopUp}
-              className="flex items-center gap-1.5 text-xs font-bold text-white bg-accent/80 hover:bg-accent rounded-xl px-3 py-2 transition"
-            >
-              <ArrowUpToLine size={13} />
-              Top up to {fmtUSD(START_CASH, 0)}
-            </button>
-          )}
+          <button
+            onClick={doTopUp}
+            className="flex items-center gap-1.5 text-xs font-bold text-white bg-accent/80 hover:bg-accent rounded-xl px-3 py-2 transition"
+            title="Refill demo cash to $100,000"
+          >
+            <ArrowUpToLine size={13} />
+            Refill demo $100,000
+          </button>
           <button
             onClick={doReset}
             className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white bg-panel border border-edge rounded-xl px-3 py-2 transition"
@@ -196,6 +202,14 @@ export default function PortfolioPage() {
         ))}
       </div>
 
+      <div className="bg-panel border border-edge rounded-2xl px-4 py-3 mb-5 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-slate-400">
+        <span className="font-semibold text-slate-300">Fees paid (demo)</span>
+        <span>Exchange 0.1%: <span className="font-mono text-slate-200">{fmtUSD(fees.exchange)}</span></span>
+        <span>Broker 0.05%: <span className="font-mono text-slate-200">{fmtUSD(fees.broker)}</span></span>
+        <span className="font-semibold">Total: <span className="font-mono text-amber-200">{fmtUSD(fees.total)}</span></span>
+        <span className="text-slate-600">— every round trip costs ~0.3%; frequent trading bleeds accounts.</span>
+      </div>
+
       <div className="bg-panel border border-edge rounded-2xl p-4 mb-5">
         <div className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
           {up ? <TrendingUp size={14} className="text-up" /> : <TrendingDown size={14} className="text-down" />}
@@ -204,8 +218,63 @@ export default function PortfolioPage() {
         <EquityCurve snapshots={state.snapshots} />
       </div>
 
-      {/* Open leveraged positions */}
+      {/* Open options */}
       <div className="bg-panel border border-edge rounded-2xl overflow-hidden mb-5">
+        <div className="px-4 py-3 border-b border-edge text-sm font-semibold text-white flex items-center gap-2">
+          Option positions
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5">
+            Demo · simplified pricing
+          </span>
+        </div>
+        {pv.optRows.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-500">
+            No open options. Use the Options order type on any trade page (demo).
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[760px]">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-edge">
+                  <th className="px-4 py-3 font-semibold">Option</th>
+                  <th className="px-4 py-3 font-semibold text-right">Strike</th>
+                  <th className="px-4 py-3 font-semibold text-right">Expiry</th>
+                  <th className="px-4 py-3 font-semibold text-right">Premium paid</th>
+                  <th className="px-4 py-3 font-semibold text-right">Value now</th>
+                  <th className="px-4 py-3 font-semibold text-right">P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pv.optRows.map((o) => {
+                  const oup = o.pnl >= 0;
+                  return (
+                    <tr key={o.id} className="border-b border-edge/60 hover:bg-panel2/60 transition">
+                      <td className="px-4 py-3">
+                        <span className={cn('text-[10px] font-bold uppercase px-1.5 py-0.5 rounded mr-1.5', o.kind === 'call' ? 'text-up bg-up/15' : 'text-down bg-down/15')}>
+                          {o.kind}
+                        </span>
+                        <span className="font-bold text-white">{o.symbol}</span>
+                        <span className="text-slate-500 text-xs"> × {o.contracts}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-400 tabular-nums">{fmtUSD(o.strike, 4)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-400 tabular-nums">
+                        {new Date(o.expiry).toLocaleDateString()}
+                        {o.expired && <span className="ml-1 text-[10px] text-amber-300">settling…</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-300 tabular-nums">{fmtUSD(o.paid)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-200 tabular-nums">{fmtUSD(o.value)}</td>
+                      <td className={cn('px-4 py-3 text-right font-mono font-semibold tabular-nums', oup ? 'text-up' : 'text-down')}>
+                        {oup ? '+' : ''}{fmtUSD(o.pnl)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Open leveraged positions */}      <div className="bg-panel border border-edge rounded-2xl overflow-hidden mb-5">
         <div className="px-4 py-3 border-b border-edge text-sm font-semibold text-white flex items-center gap-2">
           Leveraged positions
           <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5">
@@ -218,7 +287,7 @@ export default function PortfolioPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[820px]">
+            <table className="w-full text-sm min-w-[1020px]">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-edge">
                   <th className="px-4 py-3 font-semibold">Position</th>
@@ -229,6 +298,8 @@ export default function PortfolioPage() {
                   <th className="px-4 py-3 font-semibold text-right">uP&L</th>
                   <th className="px-4 py-3 font-semibold text-right">Margin level</th>
                   <th className="px-4 py-3 font-semibold text-right">To liq.</th>
+                  <th className="px-4 py-3 font-semibold text-right">Stop-loss</th>
+                  <th className="px-4 py-3 font-semibold text-right">Take-profit</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -258,6 +329,12 @@ export default function PortfolioPage() {
                       </td>
                       <td className={cn('px-4 py-3 text-right font-mono tabular-nums', r.distToLiqPct < 1 ? 'text-red-300 font-bold' : 'text-slate-400')}>
                         {r.distToLiqPct.toFixed(2)}%
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-red-300/90 tabular-nums">
+                        {r.stopLoss ? fmtUSD(r.stopLoss, 5) : <span className="text-slate-600">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-up/90 tabular-nums">
+                        {r.takeProfit ? fmtUSD(r.takeProfit, 5) : <span className="text-slate-600">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
