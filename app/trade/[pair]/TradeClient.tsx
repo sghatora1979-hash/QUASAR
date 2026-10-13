@@ -372,7 +372,7 @@ export function TradeClient({ symbol, market }: { symbol: string; market: 'crypt
               </p>
             </div>
           ) : (
-            <TradingViewChart key={tvSymbol} tvSymbol={tvSymbol} />
+            <TradingViewChart key={tvSymbol} tvSymbol={tvSymbol} yahoo={signalYahoo} />
           )}
           <SignalPanel yahoo={signalYahoo} symbolLabel={symbol} priceDecimals={decimals} />
           <div>
