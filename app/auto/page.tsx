@@ -71,11 +71,15 @@ export default function AutoPage() {
   const [dayLoss, setDayLoss] = useState(0);
   const [exposure, setExposure] = useState(0);
   const [trades, setTrades] = useState(0);
+  const [dayPnl, setDayPnl] = useState(0); // NET simulated P&L (wins - losses - fees)
+  const [dayFees, setDayFees] = useState(0);
 
   const statusRef = useRef<Status>('stopped');
   const dayLossRef = useRef(0);
   const exposureRef = useRef(0);
   const tradesRef = useRef(0);
+  const dayPnlRef = useRef(0);
+  const dayFeesRef = useRef(0);
   const outsideLoggedRef = useRef(false);
   const configRef = useRef({ strategyId, symbol, amount, mode, startTime, stopTime, maxDailyLoss, maxExposure });
 
@@ -97,6 +101,10 @@ export default function AutoPage() {
 
   function start() {
     if (statusRef.current === 'emergency') return;
+    // Fresh session: reset all session stats so the new run's P&L is clean.
+    dayLossRef.current = 0; exposureRef.current = 0; tradesRef.current = 0;
+    dayPnlRef.current = 0; dayFeesRef.current = 0;
+    setDayLoss(0); setExposure(0); setTrades(0); setDayPnl(0); setDayFees(0);
     setStatus('running');
     pushLog('system', 'Auto trading STARTED (simulated). Signals will be generated every 2 seconds.');
   }
@@ -173,9 +181,13 @@ export default function AutoPage() {
       exposureRef.current += notional;
       tradesRef.current += 1;
       if (pnl < 0) dayLossRef.current += -pnl;
+      dayPnlRef.current += pnl - fee; // NET P&L after fees — wins AND losses
+      dayFeesRef.current += fee;
       setExposure(exposureRef.current);
       setTrades(tradesRef.current);
       setDayLoss(dayLossRef.current);
+      setDayPnl(dayPnlRef.current);
+      setDayFees(dayFeesRef.current);
 
       pushLog('signal', `${stratName} signal → ${side} ${fmtUSD(notional)} of ${cfg.symbol} @ ${fmtUSD(px)}${cfg.mode === 'Scalping' ? ' · scalping mode (fast demo signals)' : ''} (simulated)`);
       pushLog('order', `Simulated ${side} filled: ${fmtUSD(notional)} ${cfg.symbol} @ ${fmtUSD(px)} · P&L ${fmtUSD(pnl)} (simulated)`);
@@ -303,10 +315,21 @@ export default function AutoPage() {
           )}
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="bg-void border border-edge rounded-xl px-3 py-3">
+            <div className="text-[11px] text-slate-500">Simulated P&amp;L (net)</div>
+            <div className={cn('text-base font-extrabold mt-0.5', dayPnl >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+              {dayPnl >= 0 ? '+' : ''}{fmtUSD(dayPnl)}
+            </div>
+            <div className="text-[10px] text-slate-500">wins − losses − fees</div>
+          </div>
           <div className="bg-void border border-edge rounded-xl px-3 py-3">
             <div className="text-[11px] text-slate-500">Simulated daily loss</div>
             <div className="text-base font-extrabold text-white mt-0.5">{fmtUSD(dayLoss)}</div>
+          </div>
+          <div className="bg-void border border-edge rounded-xl px-3 py-3">
+            <div className="text-[11px] text-slate-500">Simulated fees</div>
+            <div className="text-base font-extrabold text-amber-300 mt-0.5">{fmtUSD(dayFees)}</div>
           </div>
           <div className="bg-void border border-edge rounded-xl px-3 py-3">
             <div className="text-[11px] text-slate-500">Simulated exposure</div>
