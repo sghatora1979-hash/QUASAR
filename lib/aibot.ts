@@ -57,6 +57,7 @@ export type BotIntent =
   | { type: 'teach'; topic: string }
   | { type: 'strategy'; regime: 'trending' | 'sideways' | 'general' }
   | { type: 'wallet'; query: 'profit' | 'balance' | 'commission' | 'tax' | 'trades' | 'ledger' | 'strategies' }
+  | { type: 'news' }
   | { type: 'help' }
   | { type: 'fallback' };
 
@@ -73,11 +74,15 @@ const WALLET_RE: [RegExp, 'profit' | 'balance' | 'commission' | 'tax' | 'trades'
   [/(my|available|all).*(strateg|strategies)|strategy.*(list|library|hub)/, 'strategies'],
 ];
 
+const NEWS_RE = /(news|headlines|what'?s (happening|going on)|market (today|now|update)|aaj (market|bazaar)|kya (chal|ho) raha|bazaar.*(haal|kaisa))/;
+
 export function parseIntent(text: string): BotIntent {
   const t = text.toLowerCase();
   if (/(help|what can you do|commands)/.test(t)) return { type: 'help' };
   // Personal wallet/ledger questions FIRST — they read YOUR real demo data.
   for (const [re, query] of WALLET_RE) if (re.test(t)) return { type: 'wallet', query };
+  // Market news / what's going on — answered from live web headlines.
+  if (NEWS_RE.test(t)) return { type: 'news' };
   const sym = resolveBotSymbol(text);
   if (sym && ANALYZE_RE.test(t)) return { type: 'analyze', symbol: sym };
   // "Analyze BTC" without trigger words
@@ -161,13 +166,13 @@ export const STRATEGY_ADVICE: Record<'trending' | 'sideways' | 'general', string
   general: `**Which strategy?** It depends on the market's mood:\n\n• **Trending** (ADX > 20): Supertrend, SMA Crossover, MACD, Breakout\n• **Sideways** (ADX < 20): RSI Mean Reversion, Bollinger Bounce\n\nAsk me to **analyze a symbol** and I'll compute its ADX + indicators and tell you which regime it's in. Or open the **Algo Lab** and paper-run all six on 2 years of history — let the numbers convince you.${DISCLAIMER}`,
 };
 
-export const HELP_TEXT = `I'm the **Quasar AI Bot** 🤖 — your demo trading tutor.\n\n**I can:**\n• 💰 **Answer from YOUR demo data** — "My profit?", "My commission?", "My balance?", "My tax?", "My trades?", "Show my ledger"\n  (reads your real paper-trading state in this browser — never made up)\n• 📊 **Analyze any symbol** — "Analyze BTC", "Signal for RELIANCE", "Is NVDA bullish?"\n  (Supertrend + RSI + SMA trend + ADX, computed live from market history)\n• 🎓 **Explain concepts** — "What is RSI?", "How does leverage work?", "What is a stop-loss?"\n• 🧭 **Suggest strategies** — "Best strategy for sideways market?"\n• 🪙 **Explain QSR**, fees, demo refill, market hours…\n\nEverything is educational, computed from public demo data. **Not financial advice — demo only.**`;
+export const HELP_TEXT = `I'm the **Quasar AI Bot** 🤖 — your demo trading tutor.\n\n**I can:**\n• 💰 **Answer from YOUR demo data** — "My profit?", "My commission?", "My balance?", "My tax?", "My trades?", "Show my ledger"\n  (reads your real paper-trading state in this browser — never made up)\n• 📊 **Analyze any symbol** — "Analyze BTC", "Signal for RELIANCE", "Is NVDA bullish?"\n  (Supertrend + RSI + SMA trend + ADX, computed live from market history)\n• 🎓 **Explain concepts** — "What is RSI?", "How does leverage work?", "What is a stop-loss?"\n• 🧭 **Suggest strategies** — "Best strategy for sideways market?"\n• 📰 **Market news + web answers** — "What's happening in the market?", "Bitcoin news", or ANY general question — I search live headlines (CoinDesk, CoinTelegraph, Economic Times) + the web\n• 🪙 **Explain QSR**, fees, demo refill, market hours…\n\nEverything is educational, computed from public demo data. **Not financial advice — demo only.**`;
 
 export const FALLBACK_TEXT = `Hmm, I'm a simple pattern-matching bot (no big AI brain yet 🧠), so I didn't quite get that.\n\nTry:\n• **"My profit?"** — your real demo P&L, fees, tax estimate\n• **"Analyze BTC"** — live indicator summary for any coin, stock, or forex pair\n• **"What is RSI?"** — explain any trading concept\n• **"Best strategy for sideways market?"** — strategy guidance\n\n${'_Demo only — not financial advice._'}`;
 
 export const CHIPS = [
   'My profit?',
-  'My commission?',
+  "What's happening in the market?",
   'Analyze BTC',
   'What is stop-loss?',
 ];
