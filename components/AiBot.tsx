@@ -54,6 +54,18 @@ function renderLite(text: string) {
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
+async function askWeb(question: string, mode?: 'news'): Promise<string> {
+  try {
+    const url = `/api/assistant?q=${encodeURIComponent(question)}${mode ? `&mode=${mode}` : ''}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    const j = await r.json();
+    if (j.ok && typeof j.answer === 'string' && j.answer.trim()) return j.answer;
+    return FALLBACK_TEXT;
+  } catch {
+    return FALLBACK_TEXT;
+  }
+}
+
 async function analyzeSymbol(sym: BotSymbol): Promise<string> {
   if (!sym.yahoo) {
     return `**${sym.label}** — Quasar's native demo coin.\n\nIts price is **simulated** (gentle random walk from $0.0001), so there is no real history to run indicators on. You can still paper-trade it with the full ticket — leverage, SL/TP included.\n\n_Demo only — not financial advice._`;
@@ -120,10 +132,11 @@ export function AiBot() {
       let reply: string;
       if (intent.type === 'analyze') reply = await analyzeSymbol(intent.symbol);
       else if (intent.type === 'wallet') reply = answerWallet(intent.query);
+      else if (intent.type === 'news') reply = await askWeb(text, 'news');
       else if (intent.type === 'teach') reply = TEACH[intent.topic] ?? FALLBACK_TEXT;
       else if (intent.type === 'strategy') reply = STRATEGY_ADVICE[intent.regime];
       else if (intent.type === 'help') reply = HELP_TEXT;
-      else reply = FALLBACK_TEXT;
+      else reply = await askWeb(text); // fallback = web search, never a dead end
       setMsgs((m) => [...m, { role: 'bot', text: reply }]);
     } finally {
       setBusy(false);
