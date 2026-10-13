@@ -35,8 +35,11 @@ export default function AiManagerPage() {
           fetch('/api/stocks', { cache: 'no-store' }).then((r) => r.json()),
         ]);
         if (!alive) return;
-        if (c.ok) setCrypto(c.data);
-        if (s.ok) setStocks(s.data);
+        // /api/ticker returns { ok, data }, /api/stocks returns { ok, quotes }.
+        // Guard both with Array.isArray so a shape mismatch can never
+        // set state to undefined and crash the render (spread of undefined).
+        if (c.ok) setCrypto(Array.isArray(c.data) ? c.data : []);
+        if (s.ok) setStocks(Array.isArray(s.quotes) ? s.quotes : []);
         if (!c.ok && !s.ok) setError('Market data unavailable right now.');
       } catch {
         if (alive) setError('Could not reach market data.');
@@ -51,7 +54,7 @@ export default function AiManagerPage() {
 
   const insights: Insight[] = useMemo(() => {
     const out: Insight[] = [];
-    const all: Row[] = [...crypto, ...stocks].filter((r) => r.changePct !== null);
+    const all: Row[] = [...(crypto ?? []), ...(stocks ?? [])].filter((r) => r && r.changePct !== null);
     if (!all.length) return out;
 
     const sorted = [...all].sort((a, b) => (b.changePct ?? 0) - (a.changePct ?? 0));
