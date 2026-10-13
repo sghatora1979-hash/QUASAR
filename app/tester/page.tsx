@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Activity, ChevronDown, Download, Play, Settings2, TriangleAlert, Trophy } from 'lucide-react';
 import { fmtUSD, TOTAL_FEE_RATE } from '@/lib/quasar';
+import { TAX_CONFIGS, taxOnFees } from '@/lib/hub';
 import { cn } from '@/lib/utils';
 import {
   Bar,
@@ -227,8 +228,17 @@ export default function TesterPage() {
   const [simulated, setSimulated] = useState(false);
   const [rows, setRows] = useState<RowData[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [country, setCountry] = useState('CA');
 
   const sym = SYMBOLS.find((s) => s.key === symKey)!;
+
+  /** Demo tax estimate: fees ≈ round trips × 2 sides × 0.15% × capital; tax = rate × fees. */
+  const taxFor = (result: BacktestResult) => {
+    const cap = Math.max(100, parseFloat(capital) || 10000);
+    const estFees = result.numRoundTrips * 2 * TOTAL_FEE_RATE * cap;
+    const { tax } = taxOnFees(estFees, country);
+    return { estFees, tax, netPct: result.totalReturnPct - (tax / cap) * 100 };
+  };
 
   const compute = (barData: Bar[], cap: number, fee: number, p: Record<string, StrategyParams>) => {
     const series = { c: barData.map((b) => b.c), h: barData.map((b) => b.h), l: barData.map((b) => b.l) };
@@ -359,6 +369,15 @@ export default function TesterPage() {
             />
             <span>Fees <span className="text-slate-500">0.15%/side</span></span>
           </label>
+          <div>
+            <label className="text-xs font-semibold text-slate-400 mb-1 block">Tax country (demo est.)</label>
+            <select
+              value={country} onChange={(e) => setCountry(e.target.value)}
+              className="bg-void border border-edge rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent/60"
+            >
+              {TAX_CONFIGS.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+            </select>
+          </div>
           <button
             onClick={runAll} disabled={loading}
             className="flex items-center gap-2 bg-accent hover:bg-accent/85 disabled:opacity-50 text-white font-bold rounded-xl px-6 py-2.5 transition"
@@ -395,6 +414,8 @@ export default function TesterPage() {
                   <th className="px-4 py-3 font-semibold text-right">Trades</th>
                   <th className="px-4 py-3 font-semibold text-right">Max DD</th>
                   <th className="px-4 py-3 font-semibold text-right">Profit factor</th>
+                  <th className="px-4 py-3 font-semibold text-right">Tax est.</th>
+                  <th className="px-4 py-3 font-semibold text-right">Net %</th>
                   <th className="px-4 py-3 font-semibold text-right">Score</th>
                 </tr>
               </thead>
@@ -429,6 +450,10 @@ export default function TesterPage() {
                       <td className="px-4 py-3 text-right font-mono text-slate-200 tabular-nums">{result.numRoundTrips}</td>
                       <td className="px-4 py-3 text-right font-mono text-down tabular-nums">-{result.maxDrawdownPct.toFixed(1)}%</td>
                       <td className="px-4 py-3 text-right font-mono text-slate-200 tabular-nums">{fmtPF(result.profitFactor)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-amber-200 tabular-nums">{fmtUSD(taxFor(result).tax)}</td>
+                      <td className={cn('px-4 py-3 text-right font-mono font-bold tabular-nums', taxFor(result).netPct >= 0 ? 'text-up' : 'text-down')}>
+                        {taxFor(result).netPct >= 0 ? '+' : ''}{taxFor(result).netPct.toFixed(2)}%
+                      </td>
                       <td className={cn('px-4 py-3 text-right font-mono font-bold tabular-nums', best ? 'text-amber-300' : 'text-slate-400')}>
                         {score.toFixed(2)}
                       </td>

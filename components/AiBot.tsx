@@ -8,7 +8,39 @@ import {
 } from '@/lib/aibot';
 import { analyzeBars, type Ohlc } from '@/lib/indicators';
 import { detectDiamond, detectHarmonic } from '@/lib/patterns';
+import { loadState, fmtUSD } from '@/lib/quasar';
+import { buildLedger, ledgerSummaryText, HUB_STRATEGIES, TAX_CONFIGS } from '@/lib/hub';
 import { cn } from '@/lib/utils';
+
+/** Answers from YOUR real demo state — never made up. Country tax = Canada default (demo estimate). */
+function answerWallet(query: 'profit' | 'balance' | 'commission' | 'tax' | 'trades' | 'ledger' | 'strategies'): string {
+  const state = loadState();
+  const ledger = buildLedger(state, 'CA');
+  const m = (n: number) => fmtUSD(n);
+  const disclaimer = '\n\n_From your real demo trades in this browser. Demo only — not financial advice._';
+  switch (query) {
+    case 'profit':
+      return `**Your profit today (demo)**\n\n• **Total P&L:** ${m(ledger.totalPnl)} (${ledger.totalPnl >= 0 ? 'profit 🟢' : 'loss 🔴'})\n• **Realized P&L:** ${m(ledger.realizedPnl)} · **Unrealized P&L:** ${m(ledger.unrealizedPnl)}\n• **Gross P&L (before fees):** ${m(ledger.grossPnl)}\n• **Commission + fees:** ${m(ledger.fees.total)}\n• **Tax estimate (Canada GST 5% on fees):** ${m(ledger.tax)}\n• **Net P&L (after fees + tax est.):** ${m(ledger.netPnl)}\n• **Trades:** ${ledger.trades}${disclaimer}`;
+    case 'balance':
+      return `**Your demo wallet**\n\n• **Equity:** ${m(ledger.equity)}\n• **Available cash:** ${m(ledger.cash)}\n• **Total P&L:** ${m(ledger.totalPnl)}\n• **Trades so far:** ${ledger.trades}\n\nYou started with $100,000 demo cash. Low on cash? Hit **Refill** on the Portfolio page.${disclaimer}`;
+    case 'commission':
+      return `**Where your commission goes (demo)**\n\n• **Total commission + fees:** ${m(ledger.fees.total)}\n• **Exchange fee (0.1%/side):** ${m(ledger.fees.exchange)}\n• **Broker commission (0.05%/side):** ${m(ledger.fees.broker)}\n• **Tax estimate on fees (Canada GST 5%):** ${m(ledger.tax)}\n\nEvery trade pays 0.1% exchange + 0.05% broker per side — a round trip ≈ 0.3%. Check the full breakdown on the Portfolio page → Trading Ledger.${disclaimer}`;
+    case 'tax':
+      return `**Tax estimate (demo — not real tax)**\n\n• **On your fees of ${m(ledger.fees.total)}:** ${m(ledger.tax)} (${ledger.taxCfg.label})\n• **Net P&L after tax est.:** ${m(ledger.netPnl)}\n\nOther demo estimates:\n${TAX_CONFIGS.map((t) => `• ${t.label}: ${m(ledger.fees.total * t.rate)}`).join('\n')}\n\nIndia GST (18%) and Canada GST (5%) are NOT the same — change the country on the Portfolio / Tester pages to compare. This is a demo estimate, never a real tax calculation.${disclaimer}`;
+    case 'trades': {
+      const recent = state.orders.slice(0, 5);
+      if (!recent.length) return `**Your trades**\n\nNo trades yet — your order history is empty. Place your first paper trade on the Trade page, then ask me again!${disclaimer}`;
+      return `**Your recent trades** (latest ${recent.length} of ${state.orders.length})\n\n${recent.map((o) => `• ${o.side.toUpperCase()} ${o.qty.toFixed(4)} ${o.symbol} @ ${m(o.price)} — fee ${m(o.fee)}`).join('\n')}\n\nFull history lives on the Orders page.${disclaimer}`;
+    }
+    case 'ledger':
+      return ledgerSummaryText(ledger) + disclaimer;
+    case 'strategies': {
+      const js = HUB_STRATEGIES.filter((s) => s.source === 'quasar');
+      const pine = HUB_STRATEGIES.filter((s) => s.source === 'pine');
+      return `**Strategy library — ${HUB_STRATEGIES.length} strategies**\n\n**Quasar engine (backtestable):**\n${js.map((s) => `• ${s.name} — ${s.tag}, risk ${s.risk}/5`).join('\n')}\n\n**Pine Script library:**\n${pine.map((s) => `• ${s.name} — ${s.tag}, risk ${s.risk}/5`).join('\n')}\n\nOpen the **Strategy Hub** (top menu) to test, copy or grid any of them.${disclaimer}`;
+    }
+  }
+}
 
 type Msg = { role: 'bot' | 'user'; text: string };
 
@@ -67,7 +99,7 @@ async function analyzeSymbol(sym: BotSymbol): Promise<string> {
 export function AiBot() {
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([
-    { role: 'bot', text: `Hey! I'm the **Quasar AI Bot** 🤖 — your demo trading tutor.\n\nAsk me to **analyze a symbol** ("Analyze BTC"), **explain a concept** ("What is RSI?"), or **suggest a strategy** ("Best strategy for sideways market?").\n\n_Everything here is educational. Demo only — not financial advice._` },
+    { role: 'bot', text: `Hey! I'm the **Quasar AI Bot** 🤖 — your demo trading tutor.\n\nAsk me **"My profit?"** or **"My commission?"** for answers from YOUR real demo trades, **"Analyze BTC"** for live signals, or **"What is RSI?"** to learn a concept.\n\n_Everything here is educational. Demo only — not financial advice._` },
   ]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -87,6 +119,7 @@ export function AiBot() {
       const intent = parseIntent(text);
       let reply: string;
       if (intent.type === 'analyze') reply = await analyzeSymbol(intent.symbol);
+      else if (intent.type === 'wallet') reply = answerWallet(intent.query);
       else if (intent.type === 'teach') reply = TEACH[intent.topic] ?? FALLBACK_TEXT;
       else if (intent.type === 'strategy') reply = STRATEGY_ADVICE[intent.regime];
       else if (intent.type === 'help') reply = HELP_TEXT;

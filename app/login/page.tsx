@@ -52,7 +52,7 @@ export default function LoginPage() {
       {step === 'form' ? (
         <div className="mt-6 space-y-3">
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email"
-            type="email" className="w-full border rounded-xl px-4 py-2.5" />
+            type="email" className="w-full border rounded-xl px-4 py-2.5 bg-white text-black placeholder:text-gray-400" />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button onClick={sendCode}
             className="w-full bg-violet-600 text-white font-bold rounded-xl py-3 hover:bg-violet-700">
@@ -72,9 +72,10 @@ export default function LoginPage() {
           <p className="text-3xl font-mono font-extrabold tracking-widest text-center py-3 bg-violet-50 border border-violet-200 rounded-xl">
             {demoCode}
           </p>
+          <p className="text-xs text-gray-500 text-center">Demo: any 6-digit code works — no real email is sent.</p>
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Enter 6-digit code"
             inputMode="numeric" maxLength={6}
-            className="w-full border rounded-xl px-4 py-2.5 text-center text-xl tracking-widest" />
+            className="w-full border rounded-xl px-4 py-2.5 text-center text-xl tracking-widest bg-white text-black placeholder:text-gray-400" />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button onClick={confirm}
             className="w-full bg-violet-600 text-white font-bold rounded-xl py-3 hover:bg-violet-700">

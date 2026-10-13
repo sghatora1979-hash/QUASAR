@@ -23,12 +23,15 @@ import { forexPrices, forexBySymbol } from '@/lib/forex';
 import { stockBySymbol } from '@/lib/stocks';
 import { BrokerRegionChips, BrokerNotifyButton } from '@/components/BrokersTeaser';
 import { EquityCurve } from '@/components/EquityCurve';
+import { buildLedger, TAX_CONFIGS } from '@/lib/hub';
 import { cn } from '@/lib/utils';
 
 export default function PortfolioPage() {
   const [state, setState] = useState<PaperState>(() => loadState());
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [error, setError] = useState('');
+  const [country, setCountry] = useState('CA');
+  const ledger = useMemo(() => buildLedger(state, country), [state, country]);
 
   const cryptoSymbols = useMemo(() => Object.keys(state.holdings), [state.holdings]);
   const posSymbols = useMemo(() => Array.from(new Set(state.positions.map((p) => p.symbol))), [state.positions]);
@@ -208,6 +211,63 @@ export default function PortfolioPage() {
         <span>Broker 0.05%: <span className="font-mono text-slate-200">{fmtUSD(fees.broker)}</span></span>
         <span className="font-semibold">Total: <span className="font-mono text-amber-200">{fmtUSD(fees.total)}</span></span>
         <span className="text-slate-600">— every round trip costs ~0.3%; frequent trading bleeds accounts.</span>
+      </div>
+
+      {/* Trading Ledger — full hisaab: gross, losses, commission, tax estimate, daily */}
+      <div className="bg-panel border border-edge rounded-2xl p-4 mb-5">
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <h2 className="text-sm font-bold text-white">Trading Ledger — full hisaab</h2>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-400/10 border border-amber-400/30 rounded-full px-2 py-0.5">Demo</span>
+          <label className="ml-auto text-xs text-slate-400 flex items-center gap-2">
+            Tax country
+            <select value={country} onChange={(e) => setCountry(e.target.value)}
+              className="bg-void border border-edge rounded-lg px-2 py-1.5 text-xs text-white">
+              {TAX_CONFIGS.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Gross P&L (before fees)', value: fmtUSD(ledger.grossPnl), tone: ledger.grossPnl >= 0 ? 'text-up' : 'text-down' },
+            { label: 'Realized P&L', value: fmtUSD(ledger.realizedPnl), tone: ledger.realizedPnl >= 0 ? 'text-up' : 'text-down' },
+            { label: 'Unrealized P&L', value: fmtUSD(ledger.unrealizedPnl), tone: ledger.unrealizedPnl >= 0 ? 'text-up' : 'text-down' },
+            { label: 'Commission + fees', value: fmtUSD(ledger.fees.total), tone: 'text-amber-200' },
+            { label: 'Tax estimate', value: fmtUSD(ledger.tax), tone: 'text-amber-200' },
+            { label: 'Net P&L (after fees + tax)', value: fmtUSD(ledger.netPnl), tone: ledger.netPnl >= 0 ? 'text-up' : 'text-down' },
+            { label: 'Exchange fee (0.1%)', value: fmtUSD(ledger.fees.exchange), tone: 'text-slate-200' },
+            { label: 'Broker fee (0.05%)', value: fmtUSD(ledger.fees.broker), tone: 'text-slate-200' },
+          ].map((c) => (
+            <div key={c.label} className="bg-panel2 border border-edge rounded-xl p-3">
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">{c.label}</div>
+              <div className={cn('mt-1 text-lg font-extrabold font-mono tabular-nums', c.tone)}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+        <p className="text-[11px] text-slate-500 mt-3">{ledger.taxCfg.note}</p>
+        {ledger.daily.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-xs min-w-[480px]">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-edge">
+                  <th className="py-2 pr-3 font-semibold">Day</th>
+                  <th className="py-2 pr-3 font-semibold text-right">Trades</th>
+                  <th className="py-2 pr-3 font-semibold text-right">Fees</th>
+                  <th className="py-2 font-semibold text-right">Equity (end of day)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.daily.map((d) => (
+                  <tr key={d.day} className="border-b border-edge/60">
+                    <td className="py-2 pr-3 font-mono text-slate-300">{d.day}</td>
+                    <td className="py-2 pr-3 text-right font-mono text-slate-300">{d.trades}</td>
+                    <td className="py-2 pr-3 text-right font-mono text-amber-200">{fmtUSD(d.fees)}</td>
+                    <td className="py-2 text-right font-mono text-white">{d.equityEnd > 0 ? fmtUSD(d.equityEnd) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="bg-panel border border-edge rounded-2xl p-4 mb-5">

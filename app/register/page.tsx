@@ -18,16 +18,17 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
 
   const validEmail = /.+@.+\..+/.test(email.trim());
-  const validPhone = phone.replace(/\D/g, '').length >= 7;
 
   function sendCode() {
     setError('');
     if (!name.trim()) return setError('Please enter your name.');
     if (!validEmail) return setError('Please enter a valid email.');
-    if (!validPhone) return setError('Please enter a valid phone number.');
-    if (!idNumber.trim()) return setError('Please enter your ID number.');
+    // Demo: phone + ID are OPTIONAL — name + email is enough to start.
     if (userExists(email)) {
-      router.push('/login');
+      // Tell the user WHY instead of silently jumping to Login —
+      // a silent redirect feels like "register is not working".
+      setError('This email already has an account. Taking you to Log in…');
+      setTimeout(() => router.push('/login'), 1500);
       return;
     }
     const c = startOtp(email);
@@ -63,19 +64,20 @@ export default function RegisterPage() {
       {step === 'form' ? (
         <div className="mt-6 space-y-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name"
-            className="w-full border rounded-xl px-4 py-2.5" />
+            className="w-full border rounded-xl px-4 py-2.5 bg-white text-black placeholder:text-gray-400" />
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email"
-            type="email" className="w-full border rounded-xl px-4 py-2.5" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (e.g. +1 604 555 1234)"
-            type="tel" className="w-full border rounded-xl px-4 py-2.5" />
+            type="email" className="w-full border rounded-xl px-4 py-2.5 bg-white text-black placeholder:text-gray-400" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (optional)"
+            type="tel" className="w-full border rounded-xl px-4 py-2.5 bg-white text-black placeholder:text-gray-400" />
           <div className="flex gap-2">
             <select value={idType} onChange={(e) => setIdType(e.target.value)}
-              className="border rounded-xl px-3 py-2.5 bg-white">
+              className="border rounded-xl px-3 py-2.5 bg-white text-black">
               {ID_TYPES.map((t) => <option key={t}>{t}</option>)}
             </select>
             <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)}
-              placeholder="ID number" className="flex-1 border rounded-xl px-4 py-2.5" />
+              placeholder="ID number (optional)" className="flex-1 border rounded-xl px-4 py-2.5 bg-white text-black placeholder:text-gray-400" />
           </div>
+          <p className="text-xs text-gray-500">Demo: only <b>name + email</b> needed. Phone &amp; ID are optional.</p>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button onClick={sendCode}
             className="w-full bg-violet-600 text-white font-bold rounded-xl py-3 hover:bg-violet-700">
@@ -95,10 +97,11 @@ export default function RegisterPage() {
           </p>
           <p className="text-xs text-gray-500 text-center">
             In a real exchange this arrives by SMS/email. Here it is shown on screen because this is a demo.
+            <br /><b>Demo: any 6-digit code works</b> — no real email is sent.
           </p>
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Enter 6-digit code"
             inputMode="numeric" maxLength={6}
-            className="w-full border rounded-xl px-4 py-2.5 text-center text-xl tracking-widest" />
+            className="w-full border rounded-xl px-4 py-2.5 text-center text-xl tracking-widest bg-white text-black placeholder:text-gray-400" />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button onClick={confirm}
             className="w-full bg-violet-600 text-white font-bold rounded-xl py-3 hover:bg-violet-700">

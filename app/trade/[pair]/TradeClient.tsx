@@ -358,11 +358,11 @@ export function TradeClient({ symbol, market }: { symbol: string; market: 'crypt
                 </div>
                 <div className="bg-panel2 border border-edge rounded-xl px-4 py-3 sm:col-span-2">
                   <dt className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">
-                    Solana devnet mint address
+                    Quasar Core network
                   </dt>
                   <dd className="text-amber-200/90 font-mono font-bold mt-1 break-all">{QSR_MINT_ADDRESS}</dd>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    The real mint address will be plugged in here when the devnet token is deployed.
+                    Quasar Core is an independent Bitcoin-style blockchain (educational P2P network). No Solana mint, no real market value — demo price is simulated.
                   </p>
                 </div>
               </dl>

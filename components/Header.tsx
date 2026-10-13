@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, CandlestickChart, Wallet, ScrollText, Bot, Sparkles, BrainCircuit, Briefcase, FlaskConical, Gem, Users, Activity } from 'lucide-react';
+import { LayoutGrid, CandlestickChart, Wallet, ScrollText, Bot, Sparkles, BrainCircuit, Briefcase, FlaskConical, Gem, Users, Activity, Layers, Grid3x3, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AccountChip } from '@/components/AuthGate';
 
@@ -16,6 +16,9 @@ const NAV = [
   { href: '/orders', label: 'Orders', icon: ScrollText },
   { href: '/algo', label: 'Algo Lab', icon: FlaskConical },
   { href: '/tester', label: 'Tester', icon: Activity },
+  { href: '/strategies', label: 'Strategies', icon: Layers },
+  { href: '/grid', label: 'Grid', icon: Grid3x3 },
+  { href: '/auto', label: 'Auto', icon: Zap },
   { href: '/patterns', label: 'Patterns', icon: Gem },
   { href: '/copy', label: 'Copy', icon: Users },
 ];

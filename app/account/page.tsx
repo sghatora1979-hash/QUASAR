@@ -12,9 +12,14 @@ export default function AccountPage() {
     setUser(getSession());
   }, []);
 
+  useEffect(() => {
+    if (user === null) router.push('/login');
+  }, [user, router]);
+
   if (user === undefined) return <div className="p-8 text-center text-gray-500">Loading…</div>;
   if (!user) {
-    router.push('/login');
+    // Redirect inside an effect, not during render — push-during-render
+    // is unreliable on some mobile browsers and can leave a blank page.
     return null;
   }
 
