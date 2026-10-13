@@ -7,9 +7,63 @@ export type PairInfo = {
   kraken: string; // Kraken alt pair, e.g. XBTUSD
   tv: string; // TradingView symbol base, e.g. BTC
   decimals: number; // price display precision
+  native?: boolean; // true for Quasar's own demo token (simulated price, no Kraken data)
 };
 
+// ---------------------------------------------------------------------------
+// QSR — Quasar's native coin (DEMO listing).
+// The real Solana devnet mint address goes here when it is ready.
+// ---------------------------------------------------------------------------
+/** Solana devnet mint address for QSR — plug in the real address when ready. */
+export const QSR_MINT_ADDRESS = 'COMING_SOON';
+/** QSR total supply (500B), per the Quasar-coin prototype. */
+export const QSR_TOTAL_SUPPLY = 500_000_000_000;
+/** Simulated demo starting price for QSR/USD. */
+export const QSR_START_PRICE_USD = 0.0001;
+
+/** Deterministic 0..1 hash of an integer — keeps the demo price stable across server instances. */
+function hash01(n: number): number {
+  let x = (n ^ 0x9e3779b9) >>> 0;
+  x = Math.imul(x ^ (x >>> 16), 0x21f0aaad);
+  x = Math.imul(x ^ (x >>> 15), 0x735a2d97);
+  return ((x ^ (x >>> 15)) >>> 0) / 4294967295;
+}
+
+/**
+ * Simulated DEMO price for QSR/USD — a gentle deterministic random walk around
+ * $0.0001. NOT a market price: QSR is not listed anywhere yet. Deterministic in
+ * `at` so every API route/server instance agrees on the price.
+ */
+export function qsrSimPrice(at: number = Date.now()): number {
+  const t = at / 1000;
+  const wave = Math.sin(t / 900) * 0.04 + Math.sin(t / 97) * 0.015;
+  const bucket = Math.floor(t / 30);
+  const noise = (hash01(bucket) - 0.5) * 0.03;
+  const p = QSR_START_PRICE_USD * (1 + wave + noise);
+  return Math.min(0.0005, Math.max(0.00005, p));
+}
+
+/** Synthetic demo order book for QSR (no real order book exists yet). */
+export function qsrSimBook(price: number): { asks: { price: number; vol: number }[]; bids: { price: number; vol: number }[] } {
+  const asks: { price: number; vol: number }[] = [];
+  const bids: { price: number; vol: number }[] = [];
+  for (let i = 1; i <= 20; i++) {
+    const step = price * 0.001 * i;
+    asks.push({ price: price + step, vol: 50000 + hash01(i * 7) * 200000 });
+    bids.push({ price: price - step, vol: 50000 + hash01(i * 13) * 200000 });
+  }
+  return { asks, bids };
+}
+
+/** Synthetic 24h sparkline for QSR (demo only). */
+export function qsrSimSpark(at: number = Date.now()): number[] {
+  const out: number[] = [];
+  for (let i = 23; i >= 0; i--) out.push(qsrSimPrice(at - i * 3600_000));
+  return out;
+}
+
 export const PAIRS: PairInfo[] = [
+  { symbol: 'QSR', name: 'Quasar Coin (Native)', kraken: 'QSRUSD', tv: 'QSR', decimals: 6, native: true },
   { symbol: 'BTC', name: 'Bitcoin', kraken: 'XBTUSD', tv: 'BTC', decimals: 1 },
   { symbol: 'ETH', name: 'Ethereum', kraken: 'ETHUSD', tv: 'ETH', decimals: 2 },
   { symbol: 'SOL', name: 'Solana', kraken: 'SOLUSD', tv: 'SOL', decimals: 2 },

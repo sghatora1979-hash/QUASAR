@@ -2,9 +2,18 @@
 // All state lives in the browser's localStorage under QUASAR_KEY.
 
 export const START_CASH = 100000;
-export const FEE_RATE = 0.001; // 0.1% demo fee
-export const MAX_LEVERAGE = 500;
+export const FEE_RATE = 0.001; // 0.1% exchange fee (demo)
+export const BROKER_FEE_RATE = 0.0005; // 0.05% broker commission (demo)
+export const TOTAL_FEE_RATE = FEE_RATE + BROKER_FEE_RATE; // 0.15% round cost per side
+export const MAX_LEVERAGE = 1000;
 const QUASAR_KEY = 'quasar-paper-v1';
+
+/** Split a gross USD amount into exchange fee + broker commission (demo). */
+export function feeFor(usd: number): { exchangeFee: number; brokerFee: number; total: number } {
+  const exchangeFee = usd * FEE_RATE;
+  const brokerFee = usd * BROKER_FEE_RATE;
+  return { exchangeFee, brokerFee, total: exchangeFee + brokerFee };
+}
 
 export type Side = 'buy' | 'sell';
 export type PosSide = 'long' | 'short';
@@ -15,6 +24,8 @@ export type Holding = {
   avgCost: number; // average buy price in USD
 };
 
+export type OrderType = 'delivery' | 'intraday' | 'option' | 'leveraged';
+
 export type PaperOrder = {
   id: string;
   time: number; // epoch ms
@@ -24,9 +35,12 @@ export type PaperOrder = {
   price: number; // execution price USD
   qty: number; // base quantity
   usd: number; // gross USD value (notional for leveraged)
-  fee: number; // USD fee charged
+  fee: number; // total USD fee charged (exchange + broker)
+  exchangeFee: number; // 0.1% exchange fee portion
+  brokerFee: number; // 0.05% broker commission portion
   leverage?: number; // 1 = spot (omitted for old spot orders)
-  status: 'filled' | 'liquidated'; // demo fills instantly
+  orderType?: OrderType;
+  status: 'filled' | 'liquidated' | 'stopped' | 'take-profit'; // demo fills instantly
 };
 
 export type Position = {
@@ -38,9 +52,28 @@ export type Position = {
   entry: number; // entry price
   qty: number; // base units = notional / entry
   margin: number; // USD collateral locked (after open fee)
-  leverage: number; // 1..500
+  leverage: number; // 1..1000
   liqPrice: number; // auto-liquidation price
-  fee: number; // open fee paid
+  fee: number; // open fee paid (total)
+  exchangeFee: number;
+  brokerFee: number;
+  stopLoss?: number; // optional SL trigger price
+  takeProfit?: number; // optional TP trigger price
+  orderType?: 'intraday' | 'leveraged';
+};
+
+export type OptionKind = 'call' | 'put';
+
+export type OptionPosition = {
+  id: string;
+  time: number; // epoch ms
+  symbol: string;
+  kind: OptionKind;
+  strike: number; // USD
+  expiry: number; // epoch ms
+  contracts: number; // 1 contract = 1 unit of symbol (demo simplification)
+  premiumPerUnit: number; // USD paid per unit
+  spotAtBuy: number; // USD
 };
 
 export type Snapshot = { t: number; equity: number };
@@ -49,13 +82,14 @@ export type PaperState = {
   cash: number;
   holdings: Record<string, Holding>;
   positions: Position[];
+  options: OptionPosition[];
   orders: PaperOrder[];
   snapshots: Snapshot[];
   createdAt: number;
 };
 
 function blankState(): PaperState {
-  return { cash: START_CASH, holdings: {}, positions: [], orders: [], snapshots: [], createdAt: Date.now() };
+  return { cash: START_CASH, holdings: {}, positions: [], options: [], orders: [], snapshots: [], createdAt: Date.now() };
 }
 
 export function loadState(): PaperState {
@@ -67,6 +101,7 @@ export function loadState(): PaperState {
     if (typeof s.cash !== 'number' || !s.holdings || !Array.isArray(s.orders)) return blankState();
     // Migration-safe: old states have no positions array.
     if (!Array.isArray(s.positions)) s.positions = [];
+    if (!Array.isArray(s.options)) s.options = [];
     return s;
   } catch {
     return blankState();
@@ -101,16 +136,23 @@ const uid = () => `q-${Date.now().toString(36)}-${Math.random().toString(36).sli
 
 export type TradeResult = { ok: true; order: PaperOrder } | { ok: false; error: string };
 
-/** Market BUY: spend `usd` (fee included in the debit). */
-export function paperBuy(s: PaperState, symbol: string, usd: number, price: number, pairLabel?: string): TradeResult {
+/** Market BUY: spend `usd` (fees included in the debit). */
+export function paperBuy(
+  s: PaperState,
+  symbol: string,
+  usd: number,
+  price: number,
+  pairLabel?: string,
+  orderType: OrderType = 'delivery'
+): TradeResult {
   if (!(usd > 0)) return { ok: false, error: 'Enter an amount above $0.' };
   if (!(price > 0)) return { ok: false, error: 'Live price unavailable — try again in a moment.' };
   if (usd > s.cash + 1e-9) return { ok: false, error: 'Not enough demo cash for this order.' };
-  const fee = usd * FEE_RATE;
-  const qty = (usd - fee) / price;
+  const f = feeFor(usd);
+  const qty = (usd - f.total) / price;
   const h = s.holdings[symbol];
   const newQty = (h?.qty ?? 0) + qty;
-  const newCost = ((h?.qty ?? 0) * (h?.avgCost ?? 0) + (usd - fee)) / newQty;
+  const newCost = ((h?.qty ?? 0) * (h?.avgCost ?? 0) + (usd - f.total)) / newQty;
   s.holdings[symbol] = { symbol, qty: newQty, avgCost: newCost };
   s.cash = Math.max(0, s.cash - usd);
   const order: PaperOrder = {
@@ -122,7 +164,10 @@ export function paperBuy(s: PaperState, symbol: string, usd: number, price: numb
     price,
     qty,
     usd,
-    fee,
+    fee: f.total,
+    exchangeFee: f.exchangeFee,
+    brokerFee: f.brokerFee,
+    orderType,
     status: 'filled',
   };
   s.orders.unshift(order);
@@ -131,14 +176,21 @@ export function paperBuy(s: PaperState, symbol: string, usd: number, price: numb
 }
 
 /** Market SELL: sell `qty` units at `price`. */
-export function paperSell(s: PaperState, symbol: string, qty: number, price: number, pairLabel?: string): TradeResult {
+export function paperSell(
+  s: PaperState,
+  symbol: string,
+  qty: number,
+  price: number,
+  pairLabel?: string,
+  orderType: OrderType = 'delivery'
+): TradeResult {
   if (!(qty > 0)) return { ok: false, error: 'Enter a quantity above 0.' };
   if (!(price > 0)) return { ok: false, error: 'Live price unavailable — try again in a moment.' };
   const h = s.holdings[symbol];
   if (!h || h.qty < qty - 1e-12) return { ok: false, error: `Not enough ${symbol} in your demo portfolio.` };
   const gross = qty * price;
-  const fee = gross * FEE_RATE;
-  const net = gross - fee;
+  const f = feeFor(gross);
+  const net = gross - f.total;
   const left = h.qty - qty;
   if (left <= 1e-9) delete s.holdings[symbol];
   else s.holdings[symbol] = { ...h, qty: left };
@@ -152,7 +204,10 @@ export function paperSell(s: PaperState, symbol: string, qty: number, price: num
     price,
     qty,
     usd: gross,
-    fee,
+    fee: f.total,
+    exchangeFee: f.exchangeFee,
+    brokerFee: f.brokerFee,
+    orderType,
     status: 'filled',
   };
   s.orders.unshift(order);
@@ -162,10 +217,10 @@ export function paperSell(s: PaperState, symbol: string, qty: number, price: num
 
 // ---------- Leveraged positions (paper only) ----------
 
-export const LEVERAGE_STEPS = [1, 5, 10, 25, 50, 100, 200, 500];
+export const LEVERAGE_STEPS = [1, 5, 10, 25, 50, 100, 200, 1000];
 
 /** Fee buffer baked into the liquidation price (covers round-trip demo fees). */
-const LIQ_FEE_BUFFER = FEE_RATE;
+const LIQ_FEE_BUFFER = TOTAL_FEE_RATE;
 
 /** Liquidation price: adverse move of 1/L (minus a small fee buffer) wipes the margin. */
 export function liquidationPrice(entry: number, side: PosSide, leverage: number): number {
@@ -175,6 +230,12 @@ export function liquidationPrice(entry: number, side: PosSide, leverage: number)
     : entry * (1 + 1 / L - LIQ_FEE_BUFFER);
 }
 
+export type PositionOpts = {
+  stopLoss?: number;
+  takeProfit?: number;
+  orderType?: 'intraday' | 'leveraged';
+};
+
 /** Open a leveraged LONG/SHORT. `marginUsd` is collateral debited from cash. */
 export function openPosition(
   s: PaperState,
@@ -182,18 +243,28 @@ export function openPosition(
   side: PosSide,
   marginUsd: number,
   leverage: number,
-  price: number
+  price: number,
+  opts: PositionOpts = {}
 ): TradeResult {
   const L = Math.round(leverage);
   if (!(marginUsd > 0)) return { ok: false, error: 'Enter a margin above $0.' };
   if (!(price > 0)) return { ok: false, error: 'Live price unavailable — try again in a moment.' };
   if (L < 1 || L > MAX_LEVERAGE) return { ok: false, error: `Leverage must be 1–${MAX_LEVERAGE}x.` };
   if (marginUsd > s.cash + 1e-9) return { ok: false, error: 'Not enough demo cash for this margin.' };
-  const fee = marginUsd * FEE_RATE;
-  const margin = marginUsd - fee;
+  const f = feeFor(marginUsd);
+  const margin = marginUsd - f.total;
   const notional = margin * L;
   const qty = notional / price;
   const liqPrice = liquidationPrice(price, side, L);
+  const { stopLoss, takeProfit, orderType = 'leveraged' } = opts;
+  if (stopLoss && stopLoss > 0) {
+    const bad = side === 'long' ? stopLoss >= price : stopLoss <= price;
+    if (bad) return { ok: false, error: side === 'long' ? 'Stop-loss must be below the entry price for a long.' : 'Stop-loss must be above the entry price for a short.' };
+  }
+  if (takeProfit && takeProfit > 0) {
+    const bad = side === 'long' ? takeProfit <= price : takeProfit >= price;
+    if (bad) return { ok: false, error: side === 'long' ? 'Take-profit must be above the entry price for a long.' : 'Take-profit must be below the entry price for a short.' };
+  }
   s.cash = Math.max(0, s.cash - marginUsd);
   const pos: Position = {
     id: uid(),
@@ -206,7 +277,12 @@ export function openPosition(
     margin,
     leverage: L,
     liqPrice,
-    fee,
+    fee: f.total,
+    exchangeFee: f.exchangeFee,
+    brokerFee: f.brokerFee,
+    stopLoss: stopLoss && stopLoss > 0 ? stopLoss : undefined,
+    takeProfit: takeProfit && takeProfit > 0 ? takeProfit : undefined,
+    orderType,
   };
   s.positions.unshift(pos);
   const order: PaperOrder = {
@@ -218,8 +294,11 @@ export function openPosition(
     price,
     qty,
     usd: notional,
-    fee,
+    fee: f.total,
+    exchangeFee: f.exchangeFee,
+    brokerFee: f.brokerFee,
     leverage: L,
+    orderType,
     status: 'filled',
   };
   s.orders.unshift(order);
@@ -229,12 +308,14 @@ export function openPosition(
 
 export type CloseResult = { ok: true; pnl: number; credit: number } | { ok: false; error: string };
 
-/** Close a position at `price`. reason 'liquidated' marks the order accordingly. */
+export type CloseReason = 'manual' | 'liquidated' | 'stopped' | 'take-profit';
+
+/** Close a position at `price`. */
 export function closePosition(
   s: PaperState,
   id: string,
   price: number,
-  reason: 'manual' | 'liquidated' = 'manual'
+  reason: CloseReason = 'manual'
 ): CloseResult {
   const idx = s.positions.findIndex((p) => p.id === id);
   if (idx < 0) return { ok: false, error: 'Position not found.' };
@@ -243,8 +324,8 @@ export function closePosition(
   const notional = pos.qty * pos.entry;
   const gross = pos.qty * price;
   const rawPnl = pos.side === 'long' ? gross - notional : notional - gross;
-  const closeFee = gross * FEE_RATE;
-  const pnl = rawPnl - closeFee;
+  const f = feeFor(gross);
+  const pnl = rawPnl - f.total;
   const credit = Math.max(0, pos.margin + pnl);
   s.positions.splice(idx, 1);
   s.cash += credit;
@@ -257,12 +338,44 @@ export function closePosition(
     price,
     qty: pos.qty,
     usd: gross,
-    fee: closeFee,
+    fee: f.total,
+    exchangeFee: f.exchangeFee,
+    brokerFee: f.brokerFee,
     leverage: pos.leverage,
-    status: reason === 'liquidated' ? 'liquidated' : 'filled',
+    orderType: pos.orderType ?? 'leveraged',
+    status: reason === 'manual' ? 'filled' : reason,
   });
   saveState(s);
   return { ok: true, pnl, credit };
+}
+
+/**
+ * Auto-close positions whose stop-loss or take-profit was touched.
+ * Mutates `s` and saves. Returns closed positions with their trigger.
+ */
+export function checkStops(
+  s: PaperState,
+  prices: Record<string, number>
+): { closed: { pos: Position; trigger: 'stopped' | 'take-profit'; price: number }[] } {
+  const closed: { pos: Position; trigger: 'stopped' | 'take-profit'; price: number }[] = [];
+  for (const pos of [...s.positions]) {
+    const px = prices[pos.symbol];
+    if (!(px > 0)) continue;
+    let trigger: 'stopped' | 'take-profit' | null = null;
+    let fill = px;
+    if (pos.side === 'long') {
+      if (pos.stopLoss && px <= pos.stopLoss) { trigger = 'stopped'; fill = pos.stopLoss; }
+      else if (pos.takeProfit && px >= pos.takeProfit) { trigger = 'take-profit'; fill = pos.takeProfit; }
+    } else {
+      if (pos.stopLoss && px >= pos.stopLoss) { trigger = 'stopped'; fill = pos.stopLoss; }
+      else if (pos.takeProfit && px <= pos.takeProfit) { trigger = 'take-profit'; fill = pos.takeProfit; }
+    }
+    if (trigger) {
+      const r = closePosition(s, pos.id, fill, trigger);
+      if (r.ok) closed.push({ pos, trigger, price: fill });
+    }
+  }
+  return { closed };
 }
 
 /** Unrealized P&L + margin health for an open position at `price`. */
@@ -270,7 +383,7 @@ export function positionPnl(pos: Position, price: number) {
   const notional = pos.qty * pos.entry;
   const gross = pos.qty * (price > 0 ? price : pos.entry);
   const raw = pos.side === 'long' ? gross - notional : notional - gross;
-  const pnl = raw - gross * FEE_RATE;
+  const pnl = raw - feeFor(gross).total;
   const pnlPct = pos.margin > 0 ? (pnl / pos.margin) * 100 : 0;
   // Margin level: equity in position vs margin, as %.
   const marginLevel = pos.margin > 0 ? ((pos.margin + pnl) / pos.margin) * 100 : 0;
@@ -306,9 +419,130 @@ export function checkLiquidations(
   return { liquidated };
 }
 
+// ---------- Options (paper only, simplified pricing) ----------
+
+/**
+ * Simplified option premium: intrinsic value + 2% of spot as time value.
+ * This is a teaching simplification, NOT Black-Scholes. Labeled as such in UI.
+ * 1 contract = 1 unit of the underlying symbol.
+ */
+export function optionPremium(kind: OptionKind, spot: number, strike: number): number {
+  const intrinsic = kind === 'call' ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
+  return intrinsic + 0.02 * spot;
+}
+
+export function optionIntrinsic(kind: OptionKind, spot: number, strike: number): number {
+  return kind === 'call' ? Math.max(0, spot - strike) : Math.max(0, strike - spot);
+}
+
+export type BuyOptionResult = { ok: true; option: OptionPosition } | { ok: false; error: string };
+
+/** Buy call/put contracts. Premium is debited from cash immediately. */
+export function buyOption(
+  s: PaperState,
+  symbol: string,
+  kind: OptionKind,
+  strike: number,
+  expiry: number,
+  contracts: number,
+  spot: number
+): BuyOptionResult {
+  if (!(spot > 0)) return { ok: false, error: 'Live price unavailable — try again in a moment.' };
+  if (!(strike > 0)) return { ok: false, error: 'Pick a strike price.' };
+  if (!(contracts > 0)) return { ok: false, error: 'Enter contracts above 0.' };
+  if (!(expiry > Date.now())) return { ok: false, error: 'Expiry must be in the future.' };
+  const premiumPerUnit = optionPremium(kind, spot, strike);
+  const total = premiumPerUnit * contracts;
+  if (total > s.cash + 1e-9) return { ok: false, error: 'Not enough demo cash for this premium.' };
+  s.cash = Math.max(0, s.cash - total);
+  const opt: OptionPosition = {
+    id: uid(),
+    time: Date.now(),
+    symbol,
+    kind,
+    strike,
+    expiry,
+    contracts,
+    premiumPerUnit,
+    spotAtBuy: spot,
+  };
+  s.options.unshift(opt);
+  const f = feeFor(total);
+  s.orders.unshift({
+    id: uid(),
+    time: Date.now(),
+    pair: `${symbol}USD`,
+    symbol,
+    side: 'buy',
+    price: premiumPerUnit,
+    qty: contracts,
+    usd: total,
+    fee: f.total,
+    exchangeFee: f.exchangeFee,
+    brokerFee: f.brokerFee,
+    orderType: 'option',
+    status: 'filled',
+  });
+  saveState(s);
+  return { ok: true, option: opt };
+}
+
+/** Live value of an open option at `spot` (intrinsic only — time value decays to 0 at expiry). */
+export function optionValue(opt: OptionPosition, spot: number): number {
+  return optionIntrinsic(opt.kind, spot, opt.strike) * opt.contracts;
+}
+
+/**
+ * Settle expired options at intrinsic value. Mutates `s` and saves.
+ * Returns settled options with their payout.
+ */
+export function settleOptions(
+  s: PaperState,
+  prices: Record<string, number>
+): { settled: { opt: OptionPosition; payout: number }[] } {
+  const settled: { opt: OptionPosition; payout: number }[] = [];
+  const now = Date.now();
+  for (const opt of [...s.options]) {
+    if (opt.expiry > now) continue;
+    const px = prices[opt.symbol];
+    if (!(px > 0)) continue;
+    const payout = optionValue(opt, px);
+    s.options = s.options.filter((o) => o.id !== opt.id);
+    s.cash += payout;
+    s.orders.unshift({
+      id: uid(),
+      time: now,
+      pair: `${opt.symbol}USD`,
+      symbol: opt.symbol,
+      side: 'sell',
+      price: payout / Math.max(1e-9, opt.contracts),
+      qty: opt.contracts,
+      usd: payout,
+      fee: 0,
+      exchangeFee: 0,
+      brokerFee: 0,
+      orderType: 'option',
+      status: 'filled',
+    });
+    settled.push({ opt, payout });
+  }
+  if (settled.length) saveState(s);
+  return { settled };
+}
+
+/** Total demo fees paid across all orders (exchange + broker). */
+export function feesPaid(s: PaperState): { exchange: number; broker: number; total: number } {
+  let exchange = 0;
+  let broker = 0;
+  for (const o of s.orders) {
+    exchange += o.exchangeFee ?? o.fee ?? 0;
+    broker += o.brokerFee ?? 0;
+  }
+  return { exchange, broker, total: exchange + broker };
+}
+
 /** Portfolio math given a map of live prices (symbol -> USD). Includes open positions. */
-export function portfolioValue(s: PaperState, prices: Record<string, number>) {
-  let holdingsValue = 0;
+export function portfolioValue(s: PaperState, prices: Record<string, number>) {  let holdingsValue = 0;
   let costBasis = 0;
   const rows = Object.values(s.holdings).map((h) => {
     const px = prices[h.symbol] ?? 0;
@@ -331,9 +565,20 @@ export function portfolioValue(s: PaperState, prices: Record<string, number>) {
     return { ...pos, price: px, ...m };
   });
   const equity = s.cash + holdingsValue + positionsMargin + positionsPnl;
-  const totalPnl = equity - START_CASH;
+  // Open options: current intrinsic value counts toward equity.
+  let optionsValue = 0;
+  const optRows = (s.options ?? []).map((opt) => {
+    const px = prices[opt.symbol] ?? opt.spotAtBuy;
+    const value = optionValue(opt, px);
+    const paid = opt.premiumPerUnit * opt.contracts;
+    const pnl = value - paid;
+    optionsValue += value;
+    return { ...opt, price: px, value, paid, pnl, expired: opt.expiry <= Date.now() };
+  });
+  const equityWithOptions = equity + optionsValue;
+  const totalPnl = equityWithOptions - START_CASH;
   const totalPnlPct = (totalPnl / START_CASH) * 100;
-  return { rows, posRows, cash: s.cash, holdingsValue, positionsMargin, positionsPnl, costBasis, equity, totalPnl, totalPnlPct };
+  return { rows, posRows, optRows, cash: s.cash, holdingsValue, positionsMargin, positionsPnl, optionsValue, costBasis, equity: equityWithOptions, totalPnl, totalPnlPct };
 }
 
 /** Append an equity snapshot (cap history at ~500 points). */

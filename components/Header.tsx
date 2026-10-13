@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, CandlestickChart, Wallet, ScrollText, FlaskConical, Bot, Sparkles, BrainCircuit, Briefcase } from 'lucide-react';
+import { LayoutGrid, CandlestickChart, Wallet, ScrollText, Bot, Sparkles, BrainCircuit, Briefcase, FlaskConical, Gem, Users, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AccountChip } from '@/components/AuthGate';
 
@@ -14,6 +14,10 @@ const NAV = [
   { href: '/bots', label: 'Bots', icon: Bot },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { href: '/orders', label: 'Orders', icon: ScrollText },
+  { href: '/algo', label: 'Algo Lab', icon: FlaskConical },
+  { href: '/tester', label: 'Tester', icon: Activity },
+  { href: '/patterns', label: 'Patterns', icon: Gem },
+  { href: '/copy', label: 'Copy', icon: Users },
 ];
 
 export function QuasarWordmark({ compact = false }: { compact?: boolean }) {
@@ -36,9 +40,13 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-edge bg-void/85 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-6">
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-accentdeep to-accent2 flex items-center justify-center shadow-lg shadow-accent/30">
-            <FlaskConical size={18} className="text-white" />
-          </span>
+          <img
+            src="/icons/icon-192.png"
+            alt="Quasar logo"
+            width={36}
+            height={36}
+            className="w-9 h-9 rounded-xl shadow-lg shadow-accent/30"
+          />
           <QuasarWordmark />
           <span className="hidden md:flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-accent2 border border-edge rounded-full px-2 py-0.5 glow-accent2">
             <Sparkles size={9} />

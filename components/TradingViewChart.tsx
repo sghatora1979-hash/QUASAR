@@ -17,6 +17,16 @@ export function TradingViewChart({ tvSymbol }: { tvSymbol: string }) {
     save_image: false,
     backgroundColor: 'rgba(13, 20, 36, 1)',
     gridColor: 'rgba(28, 39, 64, 0.6)',
+    // Standard professional candle colors: green = up, red = down.
+    // (App chrome stays gold; candles stay classic green/red per design decision.)
+    overrides: {
+      'mainSeriesProperties.candleStyle.upColor': '#26a69a',
+      'mainSeriesProperties.candleStyle.downColor': '#ef5350',
+      'mainSeriesProperties.candleStyle.borderUpColor': '#26a69a',
+      'mainSeriesProperties.candleStyle.borderDownColor': '#ef5350',
+      'mainSeriesProperties.candleStyle.wickUpColor': '#26a69a',
+      'mainSeriesProperties.candleStyle.wickDownColor': '#ef5350',
+    },
   };
   return (
     <div className="tradingview-widget-container h-[480px] sm:h-[560px] rounded-2xl overflow-hidden border border-edge bg-panel">
