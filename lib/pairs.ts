@@ -12,10 +12,11 @@ export type PairInfo = {
 
 // ---------------------------------------------------------------------------
 // QSR — Quasar's native coin (DEMO listing).
-// The real Solana devnet mint address goes here when it is ready.
+// Quasar Core is an independent Bitcoin-style blockchain (educational P2P network).
+// No Solana mint. No real market value — exchange price is simulated.
 // ---------------------------------------------------------------------------
-/** Solana devnet mint address for QSR — plug in the real address when ready. */
-export const QSR_MINT_ADDRESS = 'COMING_SOON';
+/** Quasar Core network — independent chain, no Solana mint. */
+export const QSR_MINT_ADDRESS = 'QUASAR-CORE (no Solana mint)';
 /** QSR total supply (500B), per the Quasar-coin prototype. */
 export const QSR_TOTAL_SUPPLY = 500_000_000_000;
 /** Simulated demo starting price for QSR/USD. */

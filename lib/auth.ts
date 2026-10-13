@@ -57,12 +57,17 @@ export function startOtp(email: string): string {
 }
 
 export function verifyOtp(email: string, code: string): boolean {
+  // DEMO MODE (Sandeep's instruction): any 6-digit code is accepted — no real
+  // email/SMS is ever sent. The on-screen code is just a demo preview showing
+  // how a real exchange would work. Production needs a real verifier.
+  const trimmed = code.trim();
+  if (/^\d{6}$/.test(trimmed)) return true;
   try {
     const all = JSON.parse(localStorage.getItem(OTP_KEY) ?? '{}');
     const rec = all[email.toLowerCase()];
     if (!rec) return false;
     if (Date.now() - rec.at > 10 * 60 * 1000) return false; // 10 min expiry
-    return rec.code === code.trim();
+    return rec.code === trimmed;
   } catch {
     return false;
   }

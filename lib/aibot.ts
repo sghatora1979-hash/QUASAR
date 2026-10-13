@@ -56,15 +56,28 @@ export type BotIntent =
   | { type: 'analyze'; symbol: BotSymbol }
   | { type: 'teach'; topic: string }
   | { type: 'strategy'; regime: 'trending' | 'sideways' | 'general' }
+  | { type: 'wallet'; query: 'profit' | 'balance' | 'commission' | 'tax' | 'trades' | 'ledger' | 'strategies' }
   | { type: 'help' }
   | { type: 'fallback' };
 
 const ANALYZE_RE = /(analy[sz]e|signal|trend|outlook|bullish|bearish|should i buy|price prediction|forecast)/;
 const STRATEGY_RE = /(best strategy|which strategy|strategy for|sideways|choppy|ranging market|trending market)/;
 
+const WALLET_RE: [RegExp, 'profit' | 'balance' | 'commission' | 'tax' | 'trades' | 'ledger' | 'strategies'][] = [
+  [/(my|mera|mere|meri|mujhe).*(profit|kamai|earn|p&l|pnl|gain|loss)|kitn[ai].*(profit|kamai)|how much.*(profit|earn|made)|\bkamai\b/, 'profit'],
+  [/(my|mera|mere|meri).*(balance|wallet|paisa|paise|cash|fund)|wallet.*(balance|kitna)|how much.*(balance|cash)/, 'balance'],
+  [/(my|mera|mere).*commission|commission.*(kat|cut|charge|deduct|kahan|where)|where.*commission/, 'commission'],
+  [/\b(tax|gst|vat)\b/, 'tax'],
+  [/(my|mera|mere).*(trade|order|position|holding)/, 'trades'],
+  [/(ledger|hisaab|hisab|full.*(report|summary)|poora.*hisaab)/, 'ledger'],
+  [/(my|available|all).*(strateg|strategies)|strategy.*(list|library|hub)/, 'strategies'],
+];
+
 export function parseIntent(text: string): BotIntent {
   const t = text.toLowerCase();
   if (/(help|what can you do|commands)/.test(t)) return { type: 'help' };
+  // Personal wallet/ledger questions FIRST — they read YOUR real demo data.
+  for (const [re, query] of WALLET_RE) if (re.test(t)) return { type: 'wallet', query };
   const sym = resolveBotSymbol(text);
   if (sym && ANALYZE_RE.test(t)) return { type: 'analyze', symbol: sym };
   // "Analyze BTC" without trigger words
@@ -135,7 +148,7 @@ export const TEACH: Record<string, string> = {
   candles: `**Candlesticks** — each candle = one period (day, hour…).\n\n• 🟢 **Green** = closed higher than opened (buyers won)\n• 🔴 **Red** = closed lower (sellers won)\n• **Wicks** = the full high–low range; long wicks = rejection\n• A long green candle with tiny wicks = strong buying conviction\n\nQuasar charts use classic green/red candles — same language as Binance, Zerodha, TradingView everywhere.${DISCLAIMER}`,
   sr: `**Support & Resistance** — price levels where moves tend to pause or reverse.\n\n• **Support** = floor where buyers step in\n• **Resistance** = ceiling where sellers step in\n• Old resistance, once broken, often becomes new support ("flip")\n• More touches = stronger level; round numbers (100, 1000) act as magnets\n\nThey're zones, not exact lines — and they break. Always have a stop-loss beyond the level.${DISCLAIMER}`,
   hours: `**Market hours** — exchanges don't run 24/7 (crypto does, stocks don't).\n\n• 🇮🇳 NSE/BSE: 9:15–15:30 IST\n• 🇺🇸 NYSE/NASDAQ: 9:30–16:00 ET\n• 🇨🇦 TSX: 9:30–16:00 ET\n• 🇸🇬 SGX: 9:00–17:00 SGT (lunch break!)\n• 🇬🇧 LSE: 8:00–16:30 London\n\nThe country selector shows a live 🟢 Open / 🔴 Closed badge per exchange. Demo trading works 24/7 for practice, but real fills only happen when the exchange is open.${DISCLAIMER}`,
-  qsr: `**QSR — Quasar's native coin (demo)**\n\n• Total supply: **500,000,000,000 QSR**\n• Listed at the top of the crypto tab with a **Native** badge\n• Current price is **simulated** (gentle random walk from $0.0001) — it's not on any real exchange yet\n• The real Solana devnet token is being built separately\n\nYou can paper-trade QSR/USD with leverage, SL/TP — full ticket, zero real money.${DISCLAIMER}`,
+  qsr: `**QSR — Quasar's native coin (demo)**\n\n• Total supply: **500,000,000,000 QSR**\n• Listed at the top of the crypto tab with a **Native** badge\n• Current price is **simulated** (gentle random walk from $0.0001) — it's not on any real exchange yet\n• Quasar Core is an independent Bitcoin-style blockchain (laptop-mined, educational P2P network) — no Solana mint, no real market value\n\nYou can paper-trade QSR/USD with leverage, SL/TP — full ticket, zero real money.${DISCLAIMER}`,
   demo: `**This whole app is a DEMO.**\n\n• You start with **$100,000 play money**\n• Ran low? Hit **Refill** on the Portfolio page — one tap, back to $100,000\n• Nothing here moves real money, places real orders, or touches real exchanges\n• That's the point: blow up 10 demo accounts learning, so you never blow up a real one.${DISCLAIMER}`,
   diamond: `**Diamond pattern** 💎 — a rare reversal formation.\n\n• Volatility first **expands** (wider swings), then **contracts** into a diamond shape\n• **Diamond TOP** (after an uptrend) = bearish reversal\n• **Diamond BOTTOM** (after a downtrend) = bullish reversal\n• The signal is the **break of the diamond boundary** — never trade inside it\n• **Stop-loss** goes just beyond the opposite boundary\n\n⚠️ False breaks are common — wait for a daily close outside + volume. See the Pattern Lab for a diagram + live screener.${DISCLAIMER}`,
   harmonic: `**Harmonic patterns** 🦇 — X-A-B-C-D Fibonacci reversal patterns.\n\n• **Gartley**: B=0.618 of XA, D completes at 0.786\n• **Bat**: B=0.382–0.50 (shallow), D at 0.886\n• **Butterfly**: B=0.786, D extends to 1.27–1.618 past X\n• **Crab**: D extends to 1.618 — deepest, most explosive\n• Entry is at **D** — the completion zone; invalidation just beyond D\n\n⚠️ Detection here is approximate (±8% tolerance). Real harmonics need precise Fibonacci confluence — wait for confirmation at D. Pattern Lab has diagrams + a screener.${DISCLAIMER}`,
@@ -148,13 +161,13 @@ export const STRATEGY_ADVICE: Record<'trending' | 'sideways' | 'general', string
   general: `**Which strategy?** It depends on the market's mood:\n\n• **Trending** (ADX > 20): Supertrend, SMA Crossover, MACD, Breakout\n• **Sideways** (ADX < 20): RSI Mean Reversion, Bollinger Bounce\n\nAsk me to **analyze a symbol** and I'll compute its ADX + indicators and tell you which regime it's in. Or open the **Algo Lab** and paper-run all six on 2 years of history — let the numbers convince you.${DISCLAIMER}`,
 };
 
-export const HELP_TEXT = `I'm the **Quasar AI Bot** 🤖 — your demo trading tutor.\n\n**I can:**\n• 📊 **Analyze any symbol** — "Analyze BTC", "Signal for RELIANCE", "Is NVDA bullish?"\n  (Supertrend + RSI + SMA trend + ADX, computed live from market history)\n• 🎓 **Explain concepts** — "What is RSI?", "How does leverage work?", "What is a stop-loss?"\n• 🧭 **Suggest strategies** — "Best strategy for sideways market?"\n• 🪙 **Explain QSR**, fees, demo refill, market hours…\n\nEverything is educational, computed from public demo data. **Not financial advice — demo only.**`;
+export const HELP_TEXT = `I'm the **Quasar AI Bot** 🤖 — your demo trading tutor.\n\n**I can:**\n• 💰 **Answer from YOUR demo data** — "My profit?", "My commission?", "My balance?", "My tax?", "My trades?", "Show my ledger"\n  (reads your real paper-trading state in this browser — never made up)\n• 📊 **Analyze any symbol** — "Analyze BTC", "Signal for RELIANCE", "Is NVDA bullish?"\n  (Supertrend + RSI + SMA trend + ADX, computed live from market history)\n• 🎓 **Explain concepts** — "What is RSI?", "How does leverage work?", "What is a stop-loss?"\n• 🧭 **Suggest strategies** — "Best strategy for sideways market?"\n• 🪙 **Explain QSR**, fees, demo refill, market hours…\n\nEverything is educational, computed from public demo data. **Not financial advice — demo only.**`;
 
-export const FALLBACK_TEXT = `Hmm, I'm a simple pattern-matching bot (no big AI brain yet 🧠), so I didn't quite get that.\n\nTry:\n• **"Analyze BTC"** — live indicator summary for any coin, stock, or forex pair\n• **"What is RSI?"** — explain any trading concept\n• **"Best strategy for sideways market?"** — strategy guidance\n\n${'_Demo only — not financial advice._'}`;
+export const FALLBACK_TEXT = `Hmm, I'm a simple pattern-matching bot (no big AI brain yet 🧠), so I didn't quite get that.\n\nTry:\n• **"My profit?"** — your real demo P&L, fees, tax estimate\n• **"Analyze BTC"** — live indicator summary for any coin, stock, or forex pair\n• **"What is RSI?"** — explain any trading concept\n• **"Best strategy for sideways market?"** — strategy guidance\n\n${'_Demo only — not financial advice._'}`;
 
 export const CHIPS = [
+  'My profit?',
+  'My commission?',
   'Analyze BTC',
   'What is stop-loss?',
-  'What is Supertrend?',
-  'Best strategy for sideways market?',
 ];
